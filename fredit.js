@@ -8,79 +8,143 @@
 
 ;(function(){
 
-    var oldSelection = !window.getSelection;
+    // https://github.com/KoryNunn/crel minified
+    var crel = (function(h){function f(b){return"object"===typeof Node?b instanceof Node:b&&"object"===typeof b&&"number"===typeof b.nodeType&&"string"===typeof b.nodeName}function e(){var b=window.document,a=arguments,c,d;if(1===arguments.length)return b.createElement(arguments[0]);a=j.slice.call(arguments);c=a.shift();d=a.shift();c=b.createElement(c);if(f(d)||"object"!==typeof d)a=[d].concat(a),d={};if(1===a.length&&"string"===typeof a[0]&&c.textContent!==h)c.textContent=a[0];else for(var g=0;g<a.length;g++)child=a[g],null!=child&&(f(child)||(child=b.createTextNode(child)),c.appendChild(child));for(var e in d)c.setAttribute(e,d[e]);return c}var j=[];e.isNode=f;return e})();
 
-    // http://stackoverflow.com/questions/384286/javascript-isdom-how-do-you-check-if-a-javascript-object-is-a-dom-object
-    function isNode(object){
-        return (
-            typeof Node === "object" ? object instanceof Node : 
-            object && typeof object === "object" && typeof object.nodeType === "number" && typeof object.nodeName==="string"
-        );
-    }
-
-    function crel(){
-        var args = Array.prototype.slice.call(arguments),
-            type = args.shift(),
-            settings = args.shift(),
-            children = args,
-            element = document.createElement(type);
-            
-        if(isNode(settings) || typeof settings !== 'object') {
-            children = [settings].concat(children); 
-            settings = {};
+    function fastEach(array, callback) {
+        for (var i = 0; i < array.length; i++) {
+            if(callback.call(array[i], array[i], i, array)) break;
         }
-        
-        for(var i = 0; i < children.length; i++){
-            child = children[i];
-            
-            if(child == null){
-                continue;
-            }
-            
-            if(!isNode(child)){
-                child = document.createTextNode(child);
-            }
-            
-            element.appendChild(child);
-        }
-        
-        for(var key in settings){
-            element.setAttribute(key, settings[key]);
-        }
-        
-        return element;
+        return array;
     }
     
-    function addControl(editor, label, operationName, operation){
-        if(!(editor instanceof Freditor)){
+    function contains(object, target){
+        if(object == null){
+            return false;
+        }
+        var result = false;
+        fastEach(object, function(){
+            if(this === target){
+                result = true;
+                return true;
+            }
+        });
+        return result;
+    }
+
+    var oldSelection = !document.getSelection;
+    
+    //dom traversal stuff
+    
+    function throwUnsupported(featureName){
+        throw "Your browser does not support: " + featureName + ". Support for your browser can be added by including jQuery";
+    }
+    
+    function find(selector, element){
+        element = element || document;
+        if(element.querySelectorAll){
+            return element.querySelectorAll(selector);
+        }else if(jQuery){
+            return jQuery(element).find(selector);
+        }else{
+            throwUnsupported('document.querySelectorAll');
+        }
+    }
+    
+    function closest(selector, element){
+        if(element.querySelectorAll){
+            var result,
+                matches = element.parentNode && element.parentNode.parentNode && element.parentNode.parentNode.querySelectorAll(selector);
+            if(!contains(matches, element)){
+                return closest(selector, element.parentNode);
+            }else{
+                return element;
+            }
+        }else if(jQuery){
+            return jQuery(element).closest(selector)[0];
+        }else{
+            throwUnsupported('document.querySelectorAll');
+        }
+    }
+    
+    function isDescendantOf(possibleDescendant, child){
+        var result;
+        if(child.parentNode){
+            if(child.parentNode === possibleDescendant){
+                return true;
+            }else{
+                return isDescendantOf(possibleDescendant, child.parentNode);
+            }
+        }
+    }
+    
+    function getCommonSelectedNode(selection){
+        selection = (selection instanceof Selection && selection) || (this instanceof Selection && this) || new Selection(selection);
+        
+        if(oldSelection){
+            if(!selection._currentRange){
+                return;
+            }
+            return selection._currentRange.parentElement();
+        }else{
+            var range;
+                
+            if(!(selection.originalSelection && selection.originalSelection.rangeCount)){
+                return;
+            }
+                
+            range = selection.getRangeAt(0);
+            
+            return range.commonAncestorContainer;
+        }
+    };
+    
+    // Selection Normalisation    
+    function Selection(selection){
+        if(oldSelection){
+            this.originalSelection = selection || document.selection;
+            this._currentRange = this.originalSelection.createRange();
+            this._type = this._currentRange && this._currentRange.htmlText === "" && "Caret" || this.originalSelection.type;
+        }else{
+            this.originalSelection = selection || document.getSelection && document.getSelection();
+            this._type = this.originalSelection.type;
+        }
+    }
+    Selection.prototype.constructor = Selection;
+    Selection.prototype.addRange = function(range){
+        this.originalSelection.addRange(range);
+    };
+    Selection.prototype.getRangeAt = function(index){
+        if(!this.originalSelection){
             return;
         }
-        
-        var controls = editor.controls;
-            
-        controls.append(crel('button', {'type':'button','class':'btn ' + operationName, 'data-operation':operationName}, label));
-        editor.operations[operationName] = operation || editor.operations[operationName];
-    }
-
-    function createEditorControls(){
-        return $(crel('div',{'class':'controls btn-group'}));
-    }
-    
-    function selectionIsCaret(){
-        var selection;
-        if (oldSelection) {
-            selection = document.selection;
-        } else {
-            selection = window.getSelection();
+        if(this.originalSelection.getRangeAt){
+            return this.originalSelection.getRangeAt(index);
+        }else{
+            return this._currentRange;
         }
-        if(selection.type==='Caret'){
-            return true;
+    };
+    Selection.prototype.isCaret = function(){
+        return this._type==='Caret';
+    };
+    //http://stackoverflow.com/questions/4709073/in-webkit-how-do-i-add-another-word-to-the-range
+    Selection.prototype.selectWordAtCaret = function(){
+        if(!this.isCaret()){
+            return;
         }
-    }
-    
-    function modifySelection(alter, direction, granularity){
-        if(oldSelection && document.selection.type == "Text"){
-            var range = document.selection.createRange();
+        if(oldSelection){
+            this._currentRange.expand("word");
+            this._currentRange.select();
+        }else{
+            this.modify("move", "backward", "word");
+            this.modify("extend", "forward", "word");
+        }
+    };
+    Selection.prototype.modify = function(alter, direction, granularity){
+        if(oldSelection && this._type == "Caret"){
+            var range = this._currentRange;
+            this.removeAllRanges();
+            range.select();
             range.moveStart("word", 1);
             range.moveEnd("word", 1);
             switch(alter){
@@ -101,67 +165,108 @@
                     }
             }
             range.select();
-        }else if(window.getSelection().modify){
-            window.getSelection().modify(alter, direction, granularity);
+        }else if(this.originalSelection.modify){
+            this.originalSelection.modify(alter, direction, granularity);
         }
-    }
-    
-    //http://stackoverflow.com/questions/4709073/in-webkit-how-do-i-add-another-word-to-the-range
-    function selectTargetWord(){
-        if(!selectionIsCaret()){
+    };
+    Selection.prototype.selectRange = function(range){
+        if(oldSelection){
+            range.select();
             return;
         }
-        modifySelection("move", "backward", "word");
-        modifySelection("extend", "forward", "word");
+        this.originalSelection.removeAllRanges();
+        this.originalSelection.addRange(range);        
+    };
+    Selection.prototype.insertNodeIntoRange = function(node, range){
+        if(oldSelection){
+            range.pasteHTML(node.outerHTML || node.textValue);
+        }else{
+            range.insertNode(node);
+        }
+    };
+    Selection.prototype.extractRangeContents = function(range){
+        if(oldSelection){
+            var contents = range.htmlText;
+            range.pasteHTML("");
+            return contents;
+        }
+        return range.extractContents();
     }
-    
-    function wrapTargetWith(element, targetNode){
+    Selection.prototype.wrapTargetWith = function(element, targetNode){        
+        this.selectWordAtCaret();
         
-        selectTargetWord();
-        
-        var selection = document.getSelection(),
-            range = selection.getRangeAt(0);
+        var range = this.getRangeAt(0);
             
         targetNode = targetNode || element;
         
-        targetNode.appendChild(range.extractContents()); 
-        range.insertNode(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }
-    
-    function getCommonSelectedNode(){
         if(oldSelection){
-            return document.selection.createRange().parentElement();
+            targetNode.innerHTML += this.extractRangeContents(range); 
         }else{
-            var selection = document.getSelection(),
-                range;
-                
-            if(!selection.rangeCount){
-                return;
-            }
-                
-            range = selection.getRangeAt(0);
-            
-            return range.commonAncestorContainer;
+            targetNode.appendChild(this.extractRangeContents(range));         
         }
+        
+        this.insertNodeIntoRange(element, range);        
+        this.selectRange(range);
+    };
+    Selection.prototype.getCommonNode = function(){
+        getCommonSelectedNode(this.originalSelection);
+    };
+    Selection.prototype.getElementAtCaret = function(){
+        if(this.isCaret()){
+            return this.originalSelection.anchorNode;
+        }
+    };
+    Selection.prototype.getCaretOffset = function(){
+        if(this.isCaret()){
+            return this.getRangeAt(0).startOffset;
+        }
+    };
+    Selection.prototype.createRange = function(){
+        if(oldSelection){
+            return this.originalSelection.createRange();
+        }
+        return document.createRange();
     }
-        
-    function getElementAtCaret(){
-        var selection = document.getSelection();
-        
-        if(selectionIsCaret()){
-            return selection.anchorNode;
+    Selection.prototype.removeAllRanges = function(){
+        if(oldSelection){
+            this.originalSelection.empty();
+        }else{
+            this.originalSelection.removeAllRanges();
         }
+    };
+    Selection.prototype.positionCaret = function(parent, offset){
+        var range = this.createRange();
+            
+        range.setStart(parent, offset);
+        range.setEnd(parent, offset);
+        
+        this.removeAllRanges();
+        this.addRange(range);
+    };
+    Selection.prototype.selectNode = function(element) {
+        var range = this.createRange();
+        
+        range.selectNodeContents(element);
+        
+        this.removeAllRanges();
+        this.addRange(range);
+    };
+    
+    function addControl(editor, label, operationName, operation){
+        if(!(editor instanceof Freditor)){
+            return;
+        }
+        
+        var controls = editor.controls;
+            
+        controls.appendChild(crel('button', {'type':'button','class':'btn ' + operationName, 'data-operation':operationName}, label));
+        editor.operations[operationName] = operation || editor.operations[operationName];
+    }
+
+    function createEditorControls(){
+        return crel('div',{'class':'controls btn-group'});
     }
     
-    function selectNode(element) {
-        var range = document.createRange();
-        range.selectNodeContents(element);
-        var selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }
     
     function removeEmptyElements(element){
         //http://dev.w3.org/html5/markup/syntax.html#syntax-elements        
@@ -177,7 +282,7 @@
                 element.removeChild(element.childNodes[i]);
             }else{
                 var childNode = element.childNodes[i];
-                if(voidNodes.indexOf(childNode.tagName != null && childNode.tagName.toLowerCase()) < 0 && !element.childNodes[i].childNodes.length){
+                if(contains(voidNodes, childNode.tagName != null && childNode.tagName.toLowerCase()) < 0 && !element.childNodes[i].childNodes.length){
                     element.removeChild(element.childNodes[i]);
                     if(!element.childNodes.length){
                         element.parentNode.removeChild(element);
@@ -189,21 +294,47 @@
             }
         }
     }
+	
+	function appendChildren(parent, children){
+        if(!(children && children.length)){
+            return;
+        }
+		for(var i = 0; i< children.length; i++){
+			parent.appendChild(children[i]);
+		}
+	}
     
-    function replaceDivsWithParagraphs(target){
-        target.find('div').each(function(){
-            var replacementP = crel('p');
-            $(replacementP).append(this.childNodes);
-            $(this).replaceWith(replacementP);
-        });
+    function replaceDivsWithParagraphs(targetElement){
+        for(var i = 0; i < targetElement.childNodes.length; i++){
+			var child = targetElement.childNodes[i],			
+				replacementP,
+                caretOffset;
+				
+			replaceDivsWithParagraphs(child);
+            if(child.tagName === 'DIV'){
+                replacementP = crel('p');
+                appendChildren(replacementP, child.childNodes);
+                var selection = new Selection();
+                if(child === selection.getElementAtCaret()){
+                    caretOffset = selection.getCaretOffset();
+                }
+                targetElement.insertBefore(replacementP, child);
+                targetElement.removeChild(child);
+                if(caretOffset != null){
+                    selection.positionCaret(replacementP, caretOffset);
+                }
+            }
+		}
     }
     
     function sanitise(){       
         var editArea = this.editArea;
         
-        editArea.find('script, style').remove();
-        editArea.find('*').each(function(){
-            $(this).removeAttr('style');
+        fastEach(find('script, style', this), function(){
+            this.parentNode.removeChild(this);
+        });
+        fastEach(find('*', editArea), function(){
+            this.removeAttribute('style');
         });
         
         replaceDivsWithParagraphs(editArea);
@@ -216,52 +347,54 @@
             this.operations[key] = this.constructor.prototype.operations[key];
         }
         
-        if(field && $(field).length){
-            field = $(field);
-        }else{
-            field = $(crel('textarea', {'class':'richFreditor'}));
+        if(!crel.isNode(field)){
+            if(field && typeof field === 'object'){
+                options = field;
+            }
+            field = crel('textarea', {'class':'richFreditor'});            
         }
         
         this.field = field;
         
-        var editor = $(crel('div',{'class':'freditor'})),
-            editArea = $(crel('div',{'class':'editArea', 'contenteditable':'true', 'tabindex':0})),
-            controls = createEditorControls();
-            
-        this.editArea = editArea;
-        this.controls = controls;
-        this.element = editor;
-        editor.data('freditor', this);
+        var editor = this.element = crel('div',{'class':'freditor'}),
+            editArea = this.editArea = crel('div',{'class':'editArea', 'contenteditable':'true', 'tabindex':0}),
+            controls = this.controls = createEditorControls();
         
-        editArea.height(parseFloat(field.height()) || null).html(field.val());
+        editor.freditor = this;
+        editArea.contentEditable = true;
         
-        editor.append(controls, editArea);
+        editArea.innerHTML = field.value;
         
-        field.hide().after(editor);
+        appendChildren(editor, [controls, editArea]);
+        
+        field.setAttribute('style','display:none;');
+        if(editor.parentNode){
+            editor.parentNode.insertBefore(field, editor.nextSibling);
+        }
     }
     Freditor.prototype.constructor = Freditor;
     Freditor.prototype.operations = {
         underline: function(){
-            selectTargetWord();
+            this.selection.selectWordAtCaret();
             document.execCommand('underline',false);
         },
         bold: function(){
-            selectTargetWord();
+            this.selection.selectWordAtCaret();
             document.execCommand('bold',false);
         },
         italics: function(){
-            selectTargetWord();
+            this.selection.selectWordAtCaret();
             document.execCommand('italic',false);
         },
         bullets: function(){
             var newList = crel('ul',crel('li'));
             
-            wrapTargetWith(newList, $(newList).find('li')[0]);
+            this.selection.wrapTargetWith(newList, $(newList).find('li')[0]);
         },
         numberedList: function(){
-            var newList = crel('ol',crel('li', 'Item'));
+            var newList = crel('ol',crel('li'));
             
-            wrapTargetWith(newList, newList.childNodes[0]);
+            this.selection.wrapTargetWith(newList, $(newList).find('li')[0]);
         }
     };
     Freditor.prototype.addControl = function(label, operationName, operation){
@@ -276,7 +409,7 @@
     };
     Freditor.prototype.sanitise = sanitise;
     Freditor.prototype.performOperation = function(operation){
-        if($(getCommonSelectedNode()).closest(this.editArea).length){
+        if(this.selection){
             this.operations[operation].call(this);
         }
     };
@@ -312,27 +445,35 @@
     
     // delegated events.
     $(document).on('change cut copy paste drop', '.freditor .editArea', function(event){
-        var editorElement = $(event.target).closest('.freditor'),
-            editor = editorElement.data('freditor');
+        var editorElement = closest('.freditor', event.target),
+            editor = editorElement.freditor;
             
         setTimeout(function(){
             editor.sanitise();
-            editor.field.val(editor.editArea.html());
+            editor.field.value = editor.editArea.innerHTML;
         },0);
     }).on('click', '.freditor .controls button', function(event){
         var button = $(event.target).closest('button'),
             operation = button.data('operation'),
             editorElement = button.closest('.freditor'),
-            editor = editorElement.data('freditor');
+            editor = editorElement[0].freditor;
         
             editor.performOperation(operation);
     }).on('keypress', '.freditor .editArea', function(event){
-        var editorElement = $(event.target).closest('.freditor'),
-            editArea = editorElement.data('freditor').editArea;
+        var editorElement = closest('.freditor', event.target),
+            editArea = editorElement.freditor.editArea;
         
-        removeEmptyElements(editArea[0]);
+        removeEmptyElements(editArea);
         
-        editArea.trigger('change');
+        $(editArea).trigger('change');
+    }).on('select click keypress mouseup', '.freditor .editArea', function(event){
+        var editorElement = closest('.freditor', event.target),
+            editor = editorElement.freditor,
+            editArea = editor.editArea;
+            
+        if($(getCommonSelectedNode()).closest(editArea).length){
+            editor.selection = new Selection();
+        }            
     });
     
     
