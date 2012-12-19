@@ -119,7 +119,9 @@
             return;
         }
         if(this.originalSelection.getRangeAt){
-            return this.originalSelection.getRangeAt(index);
+            if(this.originalSelection.rangeCount > index){
+                return this.originalSelection.getRangeAt(index);            
+            }
         }else{
             return this._currentRange;
         }
@@ -328,16 +330,23 @@
     }
     
     function sanitise(){       
-        var editArea = this.editArea;
+        var editArea = this.editArea,
+            clone = $(editArea).clone()[0];
         
-        fastEach(find('script, style', this), function(){
+        fastEach(find('script, style', clone), function(){
             this.parentNode.removeChild(this);
         });
-        fastEach(find('*', editArea), function(){
+        fastEach(find('*', clone), function(){
             this.removeAttribute('style');
         });
         
-        replaceDivsWithParagraphs(editArea);
+        replaceDivsWithParagraphs(clone);
+        removeEmptyElements(clone);
+        
+        if(editArea.innerHTML !== clone.innerHTML){
+            editArea.sanitiseChange = true;
+            editArea.innerHTML = clone.innerHTML;
+        }
     }
 
     function Freditor(field, options){
@@ -365,11 +374,16 @@
         
         editArea.innerHTML = field.value;
         
+        $(field).on('change', function(){
+            editArea.innerHTML = field.value;
+        });
+        
         appendChildren(editor, [controls, editArea]);
         
-        field.setAttribute('style','display:none;');
-        if(editor.parentNode){
-            editor.parentNode.insertBefore(field, editor.nextSibling);
+        
+        if(field.parentNode){
+            $(field).hide();
+            field.parentNode.insertBefore(editor, field.nextSibling);
         }
     }
     Freditor.prototype.constructor = Freditor;
@@ -444,14 +458,21 @@
     // });
     
     // delegated events.
-    $(document).on('change cut copy paste drop', '.freditor .editArea', function(event){
+    $(document).on('DOMSubtreeModified', '.freditor .editArea', function(event){
         var editorElement = closest('.freditor', event.target),
             editor = editorElement.freditor;
             
-        setTimeout(function(){
-            editor.sanitise();
-            editor.field.value = editor.editArea.innerHTML;
-        },0);
+        if(editor.editArea.sanitiseChange){
+            editor.editArea.sanitiseChange = false;
+            return;
+        }
+            
+        console.log('changed');
+        
+        editor.sanitise();
+        
+        $(editor.field).val(editor.editArea.innerHTML);
+        $(editor.editArea).trigger('change');
     }).on('click', '.freditor .controls button', function(event){
         var button = $(event.target).closest('button'),
             operation = button.data('operation'),
@@ -459,13 +480,6 @@
             editor = editorElement[0].freditor;
         
             editor.performOperation(operation);
-    }).on('keypress', '.freditor .editArea', function(event){
-        var editorElement = closest('.freditor', event.target),
-            editArea = editorElement.freditor.editArea;
-        
-        removeEmptyElements(editArea);
-        
-        $(editArea).trigger('change');
     }).on('select click keypress mouseup', '.freditor .editArea', function(event){
         var editorElement = closest('.freditor', event.target),
             editor = editorElement.freditor,
