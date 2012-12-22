@@ -5,17 +5,51 @@
     .freditor .editArea{
         height:300px;
     }
+    [name=thing]{
+        color:red;
+    }
 </style>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
 <script src="fredit.js"></script>
 <script>
     $(function(){
-        var editor = new freditor();
+        var editor = new freditor(),
+			crel = freditor.crel;
         
         editor.addDefaultControls();
-        editor.addControl('Thing', 'thing', function(){
+        editor.addControl(crel('span',{name:'thing'},'thing'), 'thing', function(){
             alert();
         });
+		
+		
+    editor.addControl('Definition list', 'definitionList', function(){
+        var newList = crel('dl', crel('dt'));
+        
+        this.selection.wrapTargetWith(newList, newList.childNodes[0]);            
+    });
+    $(editor.editArea).on('keydown', function(event){
+        var atCaret = $(editor.selection.getElementAtCaret());
+        if(atCaret.closest('dl').length && event.which === 9){ // tab
+            event.preventDefault();
+            if(atCaret.closest('dt').length){
+                var nextNode = atCaret.closest('dt').next();
+                if(!nextNode.length){
+                    atCaret.closest('dt').after(crel('dd', '(definition)'));
+                }
+                editor.selection.selectNode(atCaret.closest('dt').next()[0]);
+            }else{
+                var nextNode = atCaret.closest('dd').next();
+                if(!nextNode.length){
+                    atCaret.closest('dd').after(crel('dt','(title)'));
+                }
+                editor.selection.selectNode(atCaret.closest('dd').next()[0]);
+            }
+        }
+    });
+    
+    editor.addControl('Link', 'anchor', function(){            
+        this.selection.wrapTargetWith(crel('a', {'href':window.prompt("Enter the link URL")}));
+    });
         
         $('body').append(editor.element);
     });

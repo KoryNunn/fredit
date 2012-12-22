@@ -9,22 +9,34 @@
 ;(function(){
 
     // https://github.com/KoryNunn/crel minified
-    var crel = (function(h){function f(b){return"object"===typeof Node?b instanceof Node:b&&"object"===typeof b&&"number"===typeof b.nodeType&&"string"===typeof b.nodeName}function e(){var b=window.document,a=arguments,c,d;if(1===arguments.length)return b.createElement(arguments[0]);a=j.slice.call(arguments);c=a.shift();d=a.shift();c=b.createElement(c);if(f(d)||"object"!==typeof d)a=[d].concat(a),d={};if(1===a.length&&"string"===typeof a[0]&&c.textContent!==h)c.textContent=a[0];else for(var g=0;g<a.length;g++)child=a[g],null!=child&&(f(child)||(child=b.createTextNode(child)),c.appendChild(child));for(var e in d)c.setAttribute(e,d[e]);return c}var j=[];e.isNode=f;return e})();
+    var crel = function(j){function g(a){return"object"===typeof Node?a instanceof Node:a&&"object"===typeof a&&"number"===typeof a.nodeType&&"string"===typeof a.nodeName}function e(){var a=window.document,b=arguments,c,d;if(1===arguments.length)return a.createElement(arguments[0]);b=k.slice.call(arguments);c=b.shift();d=b.shift();c=a.createElement(c);if(g(d)||"object"!==typeof d)b=[d].concat(b),d={};if(1===b.length&&"string"===typeof b[0]&&c.textContent!==j)c.textContent=b[0];else for(var h=0;h<b.length;h++)child=b[h],null!=child&&(g(child)||(child=a.createTextNode(child)),c.appendChild(child));for(var f in d)a=e.attrMap[f]||f,"function"===typeof a?a(c,d[f]):c.setAttribute(a,d[f]);return c}var k=[];e.attrMap={};e.isNode=g;return e}(),
+        testDiv = document.createElement('div'),
+        testLabel = document.createElement('label');
 
+    testDiv.setAttribute('class', 'a');    
+    testDiv['className'] !== 'a' ? crel.attrMap['class'] = 'className':undefined;
+    testDiv.setAttribute('name','a');
+    testDiv['name'] !== 'a' ? crel.attrMap['name'] = function(element, value){
+        element.id = value;
+    }:undefined;
+
+    testLabel.setAttribute('for', 'a');
+    testLabel['htmlFor'] !== 'a' ? crel.attrMap['for'] = 'htmlFor':undefined;
+    
     function fastEach(array, callback) {
         for (var i = 0; i < array.length; i++) {
-            if(callback.call(array[i], array[i], i, array)) break;
+            if(callback(array[i], i, array)) break;
         }
         return array;
     }
     
-    function contains(object, target){
-        if(object == null){
+    function contains(list, target){
+        if(list == null){
             return false;
         }
         var result = false;
-        fastEach(object, function(){
-            if(this === target){
+        fastEach(list, function(item){
+            if(item === target){
                 result = true;
                 return true;
             }
@@ -98,6 +110,14 @@
             return range.commonAncestorContainer;
         }
     };
+    
+    function getClosestElement(node){
+        while(node && node.nodeType !== 1){
+			node = node.parentNode;
+		}
+		
+		return node;
+    }
     
     // Selection Normalisation    
     function Selection(selection){
@@ -211,12 +231,18 @@
         this.selectRange(range);
     };
     Selection.prototype.getCommonNode = function(){
-        getCommonSelectedNode(this.originalSelection);
+        return getCommonSelectedNode(this);
     };
-    Selection.prototype.getElementAtCaret = function(){
+    Selection.prototype.getCommonElement = function(){
+        return getClosestElement(this.getCommonNode());
+    };
+    Selection.prototype.getNodeAtCaret = function(){
         if(this.isCaret()){
             return this.originalSelection.anchorNode;
         }
+    };
+    Selection.prototype.getElementAtCaret = function(){
+        return getClosestElement(this.getNodeAtCaret());
     };
     Selection.prototype.getCaretOffset = function(){
         if(this.isCaret()){
@@ -330,27 +356,61 @@
     }
     
     function sanitise(){       
-        var editArea = this.editArea,
-            clone = $(editArea).clone()[0];
+        var editArea = this.editArea;
         
-        fastEach(find('script, style', clone), function(){
-            this.parentNode.removeChild(this);
+        editArea.sanitiseChange = true;
+        
+        fastEach(find('script, style', editArea), function(element){
+            element.parentNode.removeChild(this);
         });
-        fastEach(find('*', clone), function(){
-            this.removeAttribute('style');
+        fastEach(find('*', editArea), function(element){
+            element.removeAttribute('style');
         });
         
-        replaceDivsWithParagraphs(clone);
-        removeEmptyElements(clone);
+        replaceDivsWithParagraphs(editArea);
+        removeEmptyElements(editArea);
         
-        if(editArea.innerHTML !== clone.innerHTML){
-            editArea.sanitiseChange = true;
-            editArea.innerHTML = clone.innerHTML;
+        if(editArea.innerHTML !== editArea.innerHTML){
+            editArea.innerHTML = editArea.innerHTML;
         }
+        
+        editArea.sanitiseChange = false;
+    }
+    
+    function bindEvents(editor){
+        var editorElement = editor.element,
+            editArea = editor.editArea;
+        // delegated events.
+        $(editArea).on('DOMSubtreeModified', function(event){
+            if(editArea.sanitiseChange){
+                return;
+            }
+            
+            // Run the following outside this event stack
+            // so that the browser has time to update the 
+            // location of the selection.
+            setTimeout(function(){
+                editor.sanitise();            
+                $(editor.field).val(editArea.innerHTML);
+                $(editArea).trigger('change');
+            },0);
+        })
+        $(editorElement).on('click', '.controls button', function(event){
+            var button = $(event.target).closest('button'),
+                operation = button.data('operation');
+                
+                editor.performOperation(operation);
+        })
+        
+        $(editArea).on('select click keyup keydown mouseup focus', function(event){
+            if($(getCommonSelectedNode()).closest(editArea).length){
+                editor.selection = new Selection();
+            }            
+        });
     }
 
     function Freditor(field, options){
-        // clone operation list.
+        // clone operation collection.
         this.operations = {}
         for(var key in this.constructor.prototype.operations){
             this.operations[key] = this.constructor.prototype.operations[key];
@@ -365,11 +425,11 @@
         
         this.field = field;
         
-        var editor = this.element = crel('div',{'class':'freditor'}),
+        var editorElement = this.element = crel('div',{'class':'freditor'}),
             editArea = this.editArea = crel('div',{'class':'editArea', 'contenteditable':'true', 'tabindex':0}),
             controls = this.controls = createEditorControls();
         
-        editor.freditor = this;
+        editorElement.freditor = this;
         editArea.contentEditable = true;
         
         editArea.innerHTML = field.value;
@@ -378,12 +438,14 @@
             editArea.innerHTML = field.value;
         });
         
-        appendChildren(editor, [controls, editArea]);
+        appendChildren(editorElement, [controls, editArea]);
+        
+        bindEvents(this);
         
         
         if(field.parentNode){
             $(field).hide();
-            field.parentNode.insertBefore(editor, field.nextSibling);
+            field.parentNode.insertBefore(editorElement, field.nextSibling);
         }
     }
     Freditor.prototype.constructor = Freditor;
@@ -423,73 +485,14 @@
     };
     Freditor.prototype.sanitise = sanitise;
     Freditor.prototype.performOperation = function(operation){
-        if(this.selection){
+        if(this.selection && $(this.selection.getCommonElement()).closest(this.editArea).length){
             this.operations[operation].call(this);
         }
     };
-    
-    // addControl(editor, 'Definition list', 'definitionList', function(editor){
-        // var newList = crel('dl', crel('dt'));
-        
-        // wrapTargetWith(newList, newList.childNodes[0]);            
-    // });
-    // editor.on('keydown', function(event){
-        // var atCaret = $(getElementAtCaret());
-        // if(atCaret.closest('dl').length && event.which === 9){ // tab
-            // event.preventDefault();
-            // if(atCaret.closest('dt').length){
-                // var nextNode = atCaret.closest('dt').next();
-                // if(!nextNode.length){
-                    // atCaret.closest('dt').after(crel('dd', '(definition)'));
-                // }
-                // selectNode(atCaret.closest('dt').next()[0]);
-            // }else{
-                // var nextNode = atCaret.closest('dd').next();
-                // if(!nextNode.length){
-                    // atCaret.closest('dd').after(crel('dt',(title)'));
-                // }
-                // selectNode(atCaret.closest('dd').next()[0]);
-            // }
-        // }
-    // });
-    
-    // addControl(editor, 'Link', 'anchor', function(editor){            
-        // wrapTargetWith(crel('a', {'href':window.prompt("Enter the link URL")}));
-    // });
-    
-    // delegated events.
-    $(document).on('DOMSubtreeModified', '.freditor .editArea', function(event){
-        var editorElement = closest('.freditor', event.target),
-            editor = editorElement.freditor;
-            
-        if(editor.editArea.sanitiseChange){
-            editor.editArea.sanitiseChange = false;
-            return;
-        }
-            
-        console.log('changed');
-        
-        editor.sanitise();
-        
-        $(editor.field).val(editor.editArea.innerHTML);
-        $(editor.editArea).trigger('change');
-    }).on('click', '.freditor .controls button', function(event){
-        var button = $(event.target).closest('button'),
-            operation = button.data('operation'),
-            editorElement = button.closest('.freditor'),
-            editor = editorElement[0].freditor;
-        
-            editor.performOperation(operation);
-    }).on('select click keypress mouseup', '.freditor .editArea', function(event){
-        var editorElement = closest('.freditor', event.target),
-            editor = editorElement.freditor,
-            editArea = editor.editArea;
-            
-        if($(getCommonSelectedNode()).closest(editArea).length){
-            editor.selection = new Selection();
-        }            
-    });
-    
+    Freditor.prototype.setValue = function(value){
+        this.editArea.innerHTML = value;
+    };
+    Freditor.crel = crel;
     
     window.freditor = Freditor;
     
