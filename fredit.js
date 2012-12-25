@@ -492,6 +492,17 @@
     Freditor.prototype.setValue = function(value){
         this.editArea.innerHTML = value;
     };
+    Freditor.prototype.getValue = function(){
+        return this.editArea.innerHTML;
+    };
+    Freditor.prototype.enable = function(){
+        this.editArea.contentEditable = true;
+        this.controls.removeAttribute('style');
+    };
+    Freditor.prototype.disable = function(){
+        this.editArea.contentEditable = false;
+        this.controls.setAttribute('style','display:none;');
+    };
     Freditor.crel = crel;
     
     window.freditor = Freditor;
