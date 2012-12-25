@@ -423,6 +423,8 @@
             field = crel('textarea', {'class':'richFreditor'});            
         }
         
+        options = options || {};
+        
         this.field = field;
         
         var editorElement = this.element = crel('div',{'class':'freditor'}),
@@ -497,10 +499,12 @@
     };
     Freditor.prototype.enable = function(){
         this.editArea.contentEditable = true;
+        this.editArea.tabIndex = 0;
         this.controls.removeAttribute('style');
     };
     Freditor.prototype.disable = function(){
         this.editArea.contentEditable = false;
+        this.editArea.removeAttribute('tabIndex');
         this.controls.setAttribute('style','display:none;');
     };
     Freditor.crel = crel;
