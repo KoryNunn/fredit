@@ -426,7 +426,7 @@
         this.field = field;
         
         var editorElement = this.element = crel('div',{'class':'freditor'}),
-            editArea = this.editArea = crel('div',{'class':'editArea', 'contenteditable':'true', 'tabindex':0}),
+            editArea = this.editArea = crel(options.editableElementType || 'div',{'class':'editArea', 'contenteditable':'true', 'tabindex':0}),
             controls = this.controls = createEditorControls();
         
         editorElement.freditor = this;
